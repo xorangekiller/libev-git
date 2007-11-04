@@ -1,4 +1,4 @@
-/* $Id: evdns.c,v 1.9 2007/11/04 18:15:16 root Exp $ */
+/* $Id: evdns.c,v 1.10 2007/11/04 18:29:44 root Exp $ */
 
 /* The original version of this module was written by Adam Langley; for
  * a history of modifications, check out the subversion logs.
@@ -40,7 +40,7 @@
 #endif
 
 #ifdef WIN32
-#ifndef EV_STANDALONE
+#ifndef EV_EMBED
 #include "misc.h"
 #endif
 #endif
