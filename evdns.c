@@ -1,4 +1,4 @@
-/* $Id: evdns.c,v 1.20 2007/11/08 16:58:00 root Exp $ */
+/* $Id: evdns.c,v 1.21 2007/11/08 18:38:52 root Exp $ */
 
 /* The original version of this module was written by Adam Langley; for
  * a history of modifications, check out the subversion logs.
