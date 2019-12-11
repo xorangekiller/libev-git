@@ -3,6 +3,15 @@ Revision history for libev, a high-performance and full-featured event loop.
 TODO: revisit 59.x timer in the light of modern powersaving
 TODO: maybe use timerfd to detect time jumps on linux
 TODO: document EV_TSTAMP_T
+
+	- change non-autoconf test for __kernel_rwf_t by testing
+          LINUX_VERSION_CODE, the most direct test I could find.
+
+4.29 (EV only)
+	- add io uring autoconf and non-autoconf detection.
+        - disable io_uring when some header files are too old.
+
+4.28 (EV only)
 	- linuxaio backend resulted in random memory corruption
           when loop is forked.
         - linuxaio backend might have tried to cancel an iocb

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8.12)
 project(libev C)
-set(LIBEV_VERSION 4.27)
+set(LIBEV_VERSION 4.29)
 set(LIBEV_VERSION_CURRENT 4)
 set(LIBEV_VERSION_AGE 0)
 set(LIBEV_VERSION_REVISION 0)
