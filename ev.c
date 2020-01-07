@@ -119,7 +119,7 @@
    
 # if HAVE_LINUX_AIO_ABI_H
 #  ifndef EV_USE_LINUXAIO
-#   define EV_USE_LINUXAIO EV_FEATURE_BACKENDS
+#   define EV_USE_LINUXAIO 0 /* was: EV_FEATURE_BACKENDS, always off by default */
 #  endif
 # else
 #  undef EV_USE_LINUXAIO
@@ -178,6 +178,15 @@
 # else
 #  undef EV_USE_EVENTFD
 #  define EV_USE_EVENTFD 0
+# endif
+
+# if HAVE_SYS_TIMERFD_H
+#  ifndef EV_USE_TIMERFD
+#   define EV_USE_TIMERFD EV_FEATURE_OS
+#  endif
+# else
+#  undef EV_USE_TIMERFD
+#  define EV_USE_TIMERFD 0
 # endif
 
 #endif
@@ -337,7 +346,7 @@
 
 #ifndef EV_USE_LINUXAIO
 # if __linux /* libev currently assumes linux/aio_abi.h is always available on linux */
-#  define EV_USE_LINUXAIO 1
+#  define EV_USE_LINUXAIO 0 /* was: 1, always off by default */
 # else
 #  define EV_USE_LINUXAIO 0
 # endif
@@ -380,6 +389,14 @@
 #  define EV_USE_SIGNALFD EV_FEATURE_OS
 # else
 #  define EV_USE_SIGNALFD 0
+# endif
+#endif
+
+#ifndef EV_USE_TIMERFD
+# if __linux && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 8))
+#  define EV_USE_TIMERFD EV_FEATURE_OS
+# else
+#  define EV_USE_TIMERFD 0
 # endif
 #endif
 
@@ -500,7 +517,7 @@
 #endif
 
 #if EV_USE_EVENTFD
-/* our minimum requirement is glibc 2.7 which has the stub, but not the header */
+/* our minimum requirement is glibc 2.7 which has the stub, but not the full header */
 # include <stdint.h>
 # ifndef EFD_NONBLOCK
 #  define EFD_NONBLOCK O_NONBLOCK
@@ -516,7 +533,7 @@ EV_CPP(extern "C") int (eventfd) (unsigned int initval, int flags);
 #endif
 
 #if EV_USE_SIGNALFD
-/* our minimum requirement is glibc 2.7 which has the stub, but not the header */
+/* our minimum requirement is glibc 2.7 which has the stub, but not the full header */
 # include <stdint.h>
 # ifndef SFD_NONBLOCK
 #  define SFD_NONBLOCK O_NONBLOCK
@@ -528,13 +545,23 @@ EV_CPP(extern "C") int (eventfd) (unsigned int initval, int flags);
 #   define SFD_CLOEXEC 02000000
 #  endif
 # endif
-EV_CPP (extern "C") int signalfd (int fd, const sigset_t *mask, int flags);
+EV_CPP (extern "C") int (signalfd) (int fd, const sigset_t *mask, int flags);
 
 struct signalfd_siginfo
 {
   uint32_t ssi_signo;
   char pad[128 - sizeof (uint32_t)];
 };
+#endif
+
+/* for timerfd, libev core requires TFD_TIMER_CANCEL_ON_SET &c */
+#if EV_USE_TIMERFD
+# include <sys/timerfd.h>
+/* timerfd is only used for periodics */
+# if !(defined (TFD_TIMER_CANCEL_ON_SET) && defined (TFD_CLOEXEC) && defined (TFD_NONBLOCK)) || !EV_PERIODIC_ENABLE
+#  undef EV_USE_TIMERFD
+#  define EV_USE_TIMERFD 0
+# endif
 #endif
 
 /*****************************************************************************/
@@ -1633,7 +1660,7 @@ ecb_binary32_to_binary16 (uint32_t x)
  * TODO: arm is also common nowadays, maybe even mips and x86
  * TODO: after implementing this, it suddenly looks like overkill, but its hard to remove...
  */
-#if __GNUC__ && __linux && ECB_AMD64 && !defined __OPTIMIZE_SIZE__
+#if __GNUC__ && __linux && ECB_AMD64 && !EV_FEATURE_CODE
   /* the costly errno access probably kills this for size optimisation */
 
   #define ev_syscall(nr,narg,arg1,arg2,arg3,arg4,arg5,arg6)            \
@@ -2237,8 +2264,20 @@ fd_reify (EV_P)
 {
   int i;
 
+  /* most backends do not modify the fdchanges list in backend_modfiy.
+   * except io_uring, which has fixed-size buffers which might force us
+   * to handle events in backend_modify, causing fdchangesd to be amended,
+   * which could result in an endless loop.
+   * to avoid this, we do not dynamically handle fds that were added
+   * during fd_reify. that menas thast for those backends, fdchangecnt
+   * might be non-zero during poll, which must cause them to not block.
+   * to not put too much of a burden on other backends, this detail
+   * needs to be handled in the backend.
+   */
+  int changecnt = fdchangecnt;
+
 #if EV_SELECT_IS_WINSOCKET || EV_USE_IOCP
-  for (i = 0; i < fdchangecnt; ++i)
+  for (i = 0; i < changecnt; ++i)
     {
       int fd = fdchanges [i];
       ANFD *anfd = anfds + fd;
@@ -2262,7 +2301,7 @@ fd_reify (EV_P)
     }
 #endif
 
-  for (i = 0; i < fdchangecnt; ++i)
+  for (i = 0; i < changecnt; ++i)
     {
       int fd = fdchanges [i];
       ANFD *anfd = anfds + fd;
@@ -2288,7 +2327,14 @@ fd_reify (EV_P)
         backend_modify (EV_A_ fd, o_events, anfd->events);
     }
 
-  fdchangecnt = 0;
+  /* normally, fdchangecnt hasn't changed. if it has, then new fds have been added.
+   * this is a rare case (see beginning comment in this function), so we copy them to the
+   * front and hope the backend handles this case.
+   */
+  if (ecb_expect_false (fdchangecnt != changecnt))
+    memmove (fdchanges, fdchanges + changecnt, (fdchangecnt - changecnt) * sizeof (*fdchanges));
+
+  fdchangecnt -= changecnt;
 }
 
 /* something about the given fd changed */
@@ -2536,7 +2582,7 @@ reheap (ANHE *heap, int N)
 
 /*****************************************************************************/
 
-/* associate signal watchers to a signal signal */
+/* associate signal watchers to a signal */
 typedef struct
 {
   EV_ATOMIC_T pending;
@@ -2850,6 +2896,58 @@ childcb (EV_P_ ev_signal *sw, int revents)
 
 /*****************************************************************************/
 
+#if EV_USE_TIMERFD
+
+static void periodics_reschedule (EV_P);
+
+static void
+timerfdcb (EV_P_ ev_io *iow, int revents)
+{
+  struct itimerspec its = { 0 };
+
+  /* since we can't easily come zup with a (portable) maximum value of time_t,
+   * we wake up once per month, which hopefully is rare enough to not
+   * be a problem. */
+  its.it_value.tv_sec = ev_rt_now + 86400 * 30;
+  timerfd_settime (timerfd, TFD_TIMER_ABSTIME | TFD_TIMER_CANCEL_ON_SET, &its, 0);
+
+  ev_rt_now = ev_time ();
+  /* periodics_reschedule only needs ev_rt_now */
+  /* but maybe in the future we want the full treatment. */
+  /*
+  now_floor = EV_TS_CONST (0.);
+  time_update (EV_A_ EV_TSTAMP_HUGE);
+  */
+  periodics_reschedule (EV_A);
+}
+
+ecb_noinline ecb_cold
+static void
+evtimerfd_init (EV_P)
+{
+  if (!ev_is_active (&timerfd_w))
+    {
+      timerfd = timerfd_create (CLOCK_REALTIME, TFD_NONBLOCK | TFD_CLOEXEC);
+
+      if (timerfd >= 0)
+        {
+          fd_intern (timerfd); /* just to be sure */
+
+          ev_io_init (&timerfd_w, timerfdcb, timerfd, EV_READ);
+          ev_set_priority (&timerfd_w, EV_MINPRI);
+          ev_io_start (EV_A_ &timerfd_w);
+          ev_unref (EV_A); /* watcher should not keep loop alive */
+
+          /* (re-) arm timer */
+          timerfdcb (EV_A_ 0, 0);
+        }
+    }
+}
+
+#endif
+
+/*****************************************************************************/
+
 #if EV_USE_IOCP
 # include "ev_iocp.c"
 #endif
@@ -2905,14 +3003,14 @@ ev_supported_backends (void) EV_NOEXCEPT
 {
   unsigned int flags = 0;
 
-  if (EV_USE_PORT    ) flags |= EVBACKEND_PORT;
-  if (EV_USE_KQUEUE  ) flags |= EVBACKEND_KQUEUE;
-  if (EV_USE_EPOLL   ) flags |= EVBACKEND_EPOLL;
-  if (EV_USE_LINUXAIO) flags |= EVBACKEND_LINUXAIO;
-  if (EV_USE_IOURING ) flags |= EVBACKEND_IOURING;
-  if (EV_USE_POLL    ) flags |= EVBACKEND_POLL;
-  if (EV_USE_SELECT  ) flags |= EVBACKEND_SELECT;
-  
+  if (EV_USE_PORT                                      ) flags |= EVBACKEND_PORT;
+  if (EV_USE_KQUEUE                                    ) flags |= EVBACKEND_KQUEUE;
+  if (EV_USE_EPOLL                                     ) flags |= EVBACKEND_EPOLL;
+  if (EV_USE_LINUXAIO                                  ) flags |= EVBACKEND_LINUXAIO;
+  if (EV_USE_IOURING && ev_linux_version () >= 0x050601) flags |= EVBACKEND_IOURING; /* 5.6.1+ */
+  if (EV_USE_POLL                                      ) flags |= EVBACKEND_POLL;
+  if (EV_USE_SELECT                                    ) flags |= EVBACKEND_SELECT;
+
   return flags;
 }
 
@@ -2952,18 +3050,13 @@ ecb_cold
 unsigned int
 ev_embeddable_backends (void) EV_NOEXCEPT
 {
-  int flags = EVBACKEND_EPOLL | EVBACKEND_KQUEUE | EVBACKEND_PORT;
+  int flags = EVBACKEND_EPOLL | EVBACKEND_KQUEUE | EVBACKEND_PORT | EVBACKEND_IOURING;
 
   /* epoll embeddability broken on all linux versions up to at least 2.6.23 */
   if (ev_linux_version () < 0x020620) /* disable it on linux < 2.6.32 */
     flags &= ~EVBACKEND_EPOLL;
 
   /* EVBACKEND_LINUXAIO is theoretically embeddable, but suffers from a performance overhead */
-
-  /* EVBACKEND_IOURING is practically embeddable, but the current implementation is not
-   * because our backend_fd is the epoll fd we need as fallback.
-   * if the kernel ever is fixed, this might change...
-   */
 
   return flags;
 }
@@ -3091,6 +3184,9 @@ loop_init (EV_P_ unsigned int flags) EV_NOEXCEPT
 #if EV_USE_SIGNALFD
       sigfd              = flags & EVFLAG_SIGNALFD  ? -2 : -1;
 #endif
+#if EV_USE_TIMERFD
+      timerfd            = flags & EVFLAG_NOTIMERFD ? -1 : -2;
+#endif
 
       if (!(flags & EVBACKEND_MASK))
         flags |= ev_recommended_backends ();
@@ -3171,6 +3267,11 @@ ev_loop_destroy (EV_P)
 #if EV_USE_SIGNALFD
   if (ev_is_active (&sigfd_w))
     close (sigfd);
+#endif
+
+#if EV_USE_TIMERFD
+  if (ev_is_active (&timerfd_w))
+    close (timerfd);
 #endif
 
 #if EV_USE_INOTIFY
@@ -3273,22 +3374,44 @@ loop_fork (EV_P)
   infy_fork (EV_A);
 #endif
 
-#if EV_SIGNAL_ENABLE || EV_ASYNC_ENABLE
-  if (ev_is_active (&pipe_w) && postfork != 2)
+  if (postfork != 2)
     {
-      /* pipe_write_wanted must be false now, so modifying fd vars should be safe */
+      #if EV_USE_SIGNALFD
+        /* surprisingly, nothing needs to be done for signalfd, accoridng to docs, it does the right thing on fork */
+      #endif
+      
+      #if EV_USE_TIMERFD
+        if (ev_is_active (&timerfd_w))
+          {
+            ev_ref (EV_A);
+            ev_io_stop (EV_A_ &timerfd_w);
 
-      ev_ref (EV_A);
-      ev_io_stop (EV_A_ &pipe_w);
-
-      if (evpipe [0] >= 0)
-        EV_WIN32_CLOSE_FD (evpipe [0]);
-
-      evpipe_init (EV_A);
-      /* iterate over everything, in case we missed something before */
-      ev_feed_event (EV_A_ &pipe_w, EV_CUSTOM);
+            close (timerfd);
+            timerfd = -2;
+      
+            evtimerfd_init (EV_A);
+            /* reschedule periodics, in case we missed something */
+            ev_feed_event (EV_A_ &timerfd_w, EV_CUSTOM);
+          }
+      #endif
+      
+      #if EV_SIGNAL_ENABLE || EV_ASYNC_ENABLE
+        if (ev_is_active (&pipe_w))
+          {
+            /* pipe_write_wanted must be false now, so modifying fd vars should be safe */
+      
+            ev_ref (EV_A);
+            ev_io_stop (EV_A_ &pipe_w);
+      
+            if (evpipe [0] >= 0)
+              EV_WIN32_CLOSE_FD (evpipe [0]);
+      
+            evpipe_init (EV_A);
+            /* iterate over everything, in case we missed something before */
+            ev_feed_event (EV_A_ &pipe_w, EV_CUSTOM);
+          }
+      #endif
     }
-#endif
 
   postfork = 0;
 }
@@ -3860,10 +3983,15 @@ ev_run (EV_P_ int flags)
             if (ecb_expect_false (waittime < timeout_blocktime))
               waittime = timeout_blocktime;
 
-            /* at this point, we NEED to wait, so we have to ensure */
-            /* to pass a minimum nonzero value to the backend */
+            /* now there are two more special cases left, either we have
+             * already-expired timers, so we should not sleep, or we have timers
+             * that expire very soon, in which case we need to wait for a minimum
+             * amount of time for some event loop backends.
+             */
             if (ecb_expect_false (waittime < backend_mintime))
-              waittime = backend_mintime;
+              waittime = waittime <= EV_TS_CONST (0.)
+                 ? EV_TS_CONST (0.)
+                 : backend_mintime;
 
             /* extra check because io_blocktime is commonly 0 */
             if (ecb_expect_false (io_blocktime))
@@ -4208,6 +4336,11 @@ ev_periodic_start (EV_P_ ev_periodic *w) EV_NOEXCEPT
 {
   if (ecb_expect_false (ev_is_active (w)))
     return;
+
+#if EV_USE_TIMERFD
+  if (timerfd == -2)
+    evtimerfd_init (EV_A);
+#endif
 
   if (w->reschedule_cb)
     ev_at (w) = w->reschedule_cb (w, ev_rt_now);
@@ -4959,6 +5092,7 @@ embed_prepare_cb (EV_P_ ev_prepare *prepare, int revents)
   }
 }
 
+#if EV_FORK_ENABLE
 static void
 embed_fork_cb (EV_P_ ev_fork *fork_w, int revents)
 {
@@ -4975,6 +5109,7 @@ embed_fork_cb (EV_P_ ev_fork *fork_w, int revents)
 
   ev_embed_start (EV_A_ w);
 }
+#endif
 
 #if 0
 static void
@@ -5005,8 +5140,10 @@ ev_embed_start (EV_P_ ev_embed *w) EV_NOEXCEPT
   ev_set_priority (&w->prepare, EV_MINPRI);
   ev_prepare_start (EV_A_ &w->prepare);
 
+#if EV_FORK_ENABLE
   ev_fork_init (&w->fork, embed_fork_cb);
   ev_fork_start (EV_A_ &w->fork);
+#endif
 
   /*ev_idle_init (&w->idle, e,bed_idle_cb);*/
 
@@ -5026,7 +5163,9 @@ ev_embed_stop (EV_P_ ev_embed *w) EV_NOEXCEPT
 
   ev_io_stop      (EV_A_ &w->io);
   ev_prepare_stop (EV_A_ &w->prepare);
+#if EV_FORK_ENABLE
   ev_fork_stop    (EV_A_ &w->fork);
+#endif
 
   ev_stop (EV_A_ (W)w);
 

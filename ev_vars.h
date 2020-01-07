@@ -145,7 +145,6 @@ VARx(uint32_t, iouring_cq_cqes)
 VARx(ev_tstamp, iouring_tfd_to)
 VARx(int, iouring_tfd)
 VARx(ev_io, iouring_tfd_w)
-VARx(ev_io, iouring_epoll_w)
 #endif
 
 #if EV_USE_KQUEUE || EV_GENWRAP
@@ -226,6 +225,11 @@ VARx(EV_ATOMIC_T, sig_pending)
 VARx(int, sigfd)
 VARx(ev_io, sigfd_w)
 VARx(sigset_t, sigfd_set)
+#endif
+
+#if EV_USE_TIMERFD || EV_GENWRAP
+VARx(int, timerfd) /* timerfd for time jump detection */
+VARx(ev_io, timerfd_w)
 #endif
 
 VARx(unsigned int, origflags) /* original loop flags */
